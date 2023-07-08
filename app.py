@@ -10,6 +10,32 @@ bot = Bot(token)
 dp = Dispatcher(bot)
 
 
+@dp.message_handler(commands=['get_result'])
+async def get_result(message: types.Message):
+    db_ses = db_session.create_session()
+    game = db_ses.query(Game).all()[-1]
+    result = 'Выжившие:\n'
+    retired = ['' for i in range(game.current_retired)]
+    for member in game.members:
+        if member.status == "Retired" or member.status == 'Last':
+            if member.reason != 'Время на выбор истекло':
+                retired[
+                    member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason + ' | Выбрано: ' + str(
+                    member.chosen_number)
+            else:
+                retired[
+                    member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason
+        else:
+            result += member.username + '\n'
+    result += "Выбывшие: \n"
+    num = 0
+    for i in range(len(retired)):
+        if retired[i]:
+            num += 1
+            result += str(num) + '. ' + retired[i] + '\n'
+    await message.answer(result)
+
+
 @dp.message_handler(commands=['info'])
 async def info(message: types.Message):
     if message.from_user.id in admins:
@@ -191,6 +217,9 @@ async def start_round(message: types.Message):
     if message.from_user.id in admins:
         db_ses = db_session.create_session()
         game = db_ses.query(Game).all()[-1]
+        if not game.x or not game.limit_retired or not game.time_per_round:
+            await message.answer('Заполнены не все параметры!')
+            return
         game.status = 'active'
         db_ses.commit()
         await bot.send_message(game.group_id, "Начали!")
@@ -211,9 +240,10 @@ async def start_round(message: types.Message):
                     db_ses.commit()
             await bot.send_message(game.group_id, make_results())
             game.set_x()
+            game.lucky_number = -1
+            game.time_per_round = None
+            game.limit_retired = None
             db_ses.commit()
-            game.current_alives = 0
-            game.current_retired = 0
             db_ses.commit()
 
 
@@ -259,9 +289,9 @@ async def get_answers(message: types.Message):
                         db_ses.commit()
                         await bot.send_message(game.group_id, make_results(auto=True))
                         game.set_x()
-                        db_ses.commit()
-                        game.current_alives = 0
-                        game.current_retired = 0
+                        game.lucky_number = -1
+                        game.time_per_round = None
+                        game.limit_retired = None
                         db_ses.commit()
                     await bot.restrict_chat_member(game.group_id, message.from_user.id,
                                                    can_send_messages=False)

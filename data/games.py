@@ -12,7 +12,7 @@ class Game(SqlAlchemyBase, SerializerMixin):
     x = sqlalchemy.Column(sqlalchemy.Integer, default=0)
     time_per_round = sqlalchemy.Column(sqlalchemy.Integer)
     lucky_number = sqlalchemy.Column(sqlalchemy.Integer, default=-1)
-    limit_retired = sqlalchemy.Column(sqlalchemy.Integer)
+    limit_retired = sqlalchemy.Column(sqlalchemy.Integer, default=10000)
     current_retired = sqlalchemy.Column(sqlalchemy.Integer, default=0)
     current_alives = sqlalchemy.Column(sqlalchemy.Integer, default=0)
     status = sqlalchemy.Column(sqlalchemy.String, default='inactive')
@@ -28,6 +28,6 @@ class Game(SqlAlchemyBase, SerializerMixin):
                 number = int(member.chosen_number)
                 if number == chosen_number:
                     return False
-            except ValueError:
+            except:
                 pass
         return True

@@ -10,6 +10,17 @@ bot = Bot(token)
 dp = Dispatcher(bot)
 
 
+@dp.message_handler(commands=['unmute_all'])
+async def add_members(message: types.Message):
+    db_ses = db_session.create_session()
+    game = db_ses.query(Game).all()[-1]
+    for member in game.members:
+        if member.tg_id:
+            await bot.restrict_chat_member(game.group_id, member.tg_id,
+                                           can_send_messages=True)
+    await message.reply("Со всех пользователей был снят мут!")
+
+
 @dp.message_handler(commands=['set_limit_numbers'])
 async def set_limit_numbers(message: types.Message):
     db_ses = db_session.create_session()
@@ -123,7 +134,12 @@ async def echo_bot(message: types.Message):
     db_ses = db_session.create_session()
     game = db_ses.query(Game).all()[-1]
     db_ses.commit()
-    await bot.send_message(game.group_id, ' '.join(message.text.split()[1:]))
+    try:
+        await bot.send_message(game.group_id, ' '.join(message.text.split()[1:]))
+    except BaseException as error:
+        game.group_id = int(error.args[0].split()[-1][:-1])
+        db_ses.commit()
+        await bot.send_message(message.from_user.id, "Бот готов к работе!")
 
 
 @dp.message_handler(content_types=['new_chat_members'])
@@ -143,6 +159,11 @@ async def add_to_group_id(message: types.Message):
                 not db_ses.query(Member).filter(
                     Member.username == chat_member.username and Member.game_id == game.id).first()):
             await bot.kick_chat_member(message.chat.id, chat_member.id)
+        else:
+            member = db_ses.query(Member).filter(
+                Member.username == chat_member.username and Member.game_id == game.id).first()
+            member.tg_id = chat_member.id
+            db_ses.commit()
 
 
 @dp.message_handler(commands=['start_round'])
@@ -155,14 +176,23 @@ async def start_round(message: types.Message):
     await asyncio.sleep(game.time_per_round)
     db_ses = db_session.create_session()
     game = db_ses.query(Game).all()[-1]
+    game.status = 'inactive'
+    db_ses.commit()
     for member in game.members:
         if not member.chosen_number:
             member.status = "Retired"
             member.reason = 'Время на выбор истекло'
             game.current_retired += 1
             member.retired_number = game.current_retired
+            await bot.restrict_chat_member(game.group_id, member.tg_id,
+                                           can_send_messages=False)
             db_ses.commit()
     await bot.send_message(game.group_id, make_results())
+    game.set_x()
+    db_ses.commit()
+    game.current_alives = 0
+    game.current_retired = 0
+    db_ses.commit()
 
 
 @dp.message_handler()
@@ -176,30 +206,36 @@ async def get_answers(message: types.Message):
                     member.status = "Retired"
                     member.reason = "Больше одного ответа"
                 else:
-                    member.chosen_number = message.text
                     try:
                         chosen_number = int(message.text)
                         if chosen_number < 1 or chosen_number > game.x:
+                            member.chosen_number = message.text
                             member.status = "Retired"
                             member.reason = "Номер недоступен (за пределами значений)"
                         elif not game.check_number(chosen_number):
+                            member.chosen_number = message.text
                             member.status = "Retired"
                             member.reason = "Номер уже занят"
                         else:
+                            member.chosen_number = message.text
                             game.current_alives += 1
                             member.retired_number = game.current_alives
+                        db_ses.commit()
                     except ValueError:
+                        member.chosen_number = message.text
                         member.status = 'Retired'
                         member.reason = "Некорректный ответ (ответ содержит лишние символы)"
+                        db_ses.commit()
 
                 if member.status == 'Retired':
                     if member.reason != "Время на выбор истекло":
                         game.current_retired += 1
                         member.retired_number = game.current_retired
                     db_ses.commit()
+                    if game.current_retired >= game.limit_retired:
+                        await bot.send_message(game.group_id, make_results())
                     await bot.restrict_chat_member(game.group_id, message.from_user.id,
-                                                   types.ChatPermissions(
-                                                       can_send_messages=False))
+                                                   can_send_messages=False)
 
 
 def make_results():
@@ -211,21 +247,31 @@ def make_results():
     retired = ['' for i in range(game.current_retired)]
     for member in game.members:
         if member.status == 'Alive':
-            if game.lucky_number != -1 and int(member.chosen_number) == lucky_number:
+            if game.lucky_number != -1 and int(member.chosen_number) == game.lucky_number:
                 lucky_number = member.username
             alives[member.retired_number - 1] = '@' + member.username
-        else:
-            retired[
-                member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason + ' | Выбрано: ' + member.chosen_number
+        elif member.status == 'Retired':
+            if member.reason != 'Время на выбор истекло':
+                retired[
+                    member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason + ' | Выбрано: ' + str(
+                    member.chosen_number)
+            else:
+                retired[
+                    member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason
+            member.status = 'Last'
+        member.chosen_number = None
+        member.retired_number = None
+        db_ses.commit()
     if game.lucky_number != -1:
-        result = 'Итоги раунда:\nСчастливый номер выбрал: @' + lucky_number + '\nВыжившие: '
+        result = 'Итоги раунда:\nСчастливый номер выбрал: @' + lucky_number + '\nВыжившие: \n'
     else:
-        result = 'Итоги раунда:\nВыжившие: '
+        result = 'Итоги раунда:\nВыжившие: \n'
     num = 0
     for i in range(len(alives)):
         if alives[i]:
             num += 1
             result += str(num) + '. ' + alives[i] + '\n'
+    result += "Выбывшие: \n"
     num = 0
     for i in range(len(retired)):
         if retired[i]:

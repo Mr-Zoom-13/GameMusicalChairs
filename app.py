@@ -10,136 +10,156 @@ bot = Bot(token)
 dp = Dispatcher(bot)
 
 
+@dp.message_handler(commands=['info'])
+async def info(message: types.Message):
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        await message.answer(
+            f"Лимит чисел: {game.x}\nВремя, отведенное на раунд: {game.time_per_round}\nСчастливое число(-1 - нет): {game.lucky_number}\nМакс. кол-во выбывших: {game.limit_retired}\nСтатус игры: {game.status}")
+
+
 @dp.message_handler(commands=['unmute_all'])
-async def add_members(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    for member in game.members:
-        if member.tg_id:
-            await bot.restrict_chat_member(game.group_id, member.tg_id,
-                                           can_send_messages=True)
-    await message.reply("Со всех пользователей был снят мут!")
+async def unmute_all(message: types.Message):
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        for member in game.members:
+            if member.tg_id:
+                await bot.restrict_chat_member(game.group_id, member.tg_id,
+                                               can_send_messages=True)
+        await message.reply("Со всех пользователей был снят мут!")
 
 
 @dp.message_handler(commands=['set_limit_numbers'])
 async def set_limit_numbers(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    x = int(message.text.split()[1])
-    if x > len(game.members) - 1:
-        await message.reply(
-            f"Введен недопустимый лимит! (Текущее число выживших: {len(game.members) - game.current_retired})!")
-    else:
-        game.x = x
-        db_ses.commit()
-        await message.reply("Новый лимит успешно установлен!")
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        x = int(message.text.split()[1])
+        if x > len(game.members) - 1:
+            await message.reply(
+                f"Введен недопустимый лимит! (Текущее число выживших: {len(game.members) - game.current_retired})!")
+        else:
+            game.x = x
+            db_ses.commit()
+            await message.reply("Новый лимит успешно установлен!")
 
 
 @dp.message_handler(commands=['add_members'])
 async def add_members(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    persons = message.text.split()[1:]
-    for username in persons:
-        member = Member()
-        member.username = username[1:]
-        game.members.append(member)
-        db_ses.add(member)
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        persons = message.text.split()[1:]
+        for username in persons:
+            member = Member()
+            member.username = username[1:]
+            game.members.append(member)
+            db_ses.add(member)
+            db_ses.commit()
+        game.set_x()
         db_ses.commit()
-    game.set_x()
-    db_ses.commit()
-    await message.reply("Текущие пользователи были успешно добавлен(-ы) в игру!")
+        await message.reply("Текущие пользователи были успешно добавлен(-ы) в игру!")
 
 
 @dp.message_handler(commands=['del_members'])
 async def del_members(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    persons = message.text.split()[1:]
-    for username in persons:
-        for member in game.members:
-            if member.username == username[1:]:
-                db_ses.delete(member)
-                db_ses.commit()
-    game.set_x()
-    db_ses.commit()
-    await message.reply("Текущие пользователи были успешно удален(-ы) из игры!")
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        persons = message.text.split()[1:]
+        for username in persons:
+            for member in game.members:
+                if member.username == username[1:]:
+                    db_ses.delete(member)
+                    db_ses.commit()
+        game.set_x()
+        db_ses.commit()
+        await message.reply("Текущие пользователи были успешно удален(-ы) из игры!")
 
 
 @dp.message_handler(commands=['clear_members'])
 async def clear_members(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    for member in game.members:
-        db_ses.delete(member)
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        for member in game.members:
+            db_ses.delete(member)
+            db_ses.commit()
+        game.set_x()
         db_ses.commit()
-    game.set_x()
-    db_ses.commit()
-    await message.reply("Все участники были удалены из игры!")
+        await message.reply("Все участники были удалены из игры!")
 
 
 @dp.message_handler(commands=['ban'])
 async def ban_members(message: types.Message):
-    db_ses = db_session.create_session()
-    persons = message.text.split()[1:]
-    for username in persons:
-        banned = Banned()
-        banned.username = username[1:]
-        db_ses.add(banned)
-        db_ses.commit()
-    await message.reply("Текущие пользователи были успешно заблокирован(-ы)!")
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        persons = message.text.split()[1:]
+        for username in persons:
+            banned = Banned()
+            banned.username = username[1:]
+            db_ses.add(banned)
+            db_ses.commit()
+        await message.reply("Текущие пользователи были успешно заблокирован(-ы)!")
 
 
 @dp.message_handler(commands=['unban'])
 async def unban_members(message: types.Message):
-    db_ses = db_session.create_session()
-    persons = message.text.split()[1:]
-    for username in persons:
-        persons = db_ses.query(Banned).filter(Banned.username == username[1:]).all()
-        for person in persons:
-            db_ses.delete(person)
-        db_ses.commit()
-    await message.reply("Текущие пользователи были успешно разблокирован(-ы)!")
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        persons = message.text.split()[1:]
+        for username in persons:
+            persons = db_ses.query(Banned).filter(Banned.username == username[1:]).all()
+            for person in persons:
+                db_ses.delete(person)
+            db_ses.commit()
+        await message.reply("Текущие пользователи были успешно разблокирован(-ы)!")
 
 
 @dp.message_handler(commands=['set_lucky_number'])
 async def set_lucky_number(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    game.lucky_number = int(message.text.split()[1])
-    db_ses.commit()
-    await message.reply("Счастливое число установлено!")
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        game.lucky_number = int(message.text.split()[1])
+        db_ses.commit()
+        await message.reply("Счастливое число установлено!")
 
 
 @dp.message_handler(commands=['set_time'])
 async def set_time(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    game.time_per_round = int(message.text.split()[1])
-    db_ses.commit()
-    await message.reply("Время, отведенное на раунд, установлено!")
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        game.time_per_round = int(message.text.split()[1])
+        db_ses.commit()
+        await message.reply("Время, отведенное на раунд, установлено!")
 
 
 @dp.message_handler(commands=['set_limit_retired'])
 async def set_limit(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    game.limit_retired = int(message.text.split()[1])
-    db_ses.commit()
-    await message.reply("Максимальное число выбывших игроков установлено!")
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        game.limit_retired = int(message.text.split()[1])
+        db_ses.commit()
+        await message.reply("Максимальное число выбывших игроков установлено!")
 
 
 @dp.message_handler(commands=['echo'])
 async def echo_bot(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    db_ses.commit()
-    try:
-        await bot.send_message(game.group_id, ' '.join(message.text.split()[1:]))
-    except BaseException as error:
-        game.group_id = int(error.args[0].split()[-1][:-1])
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
         db_ses.commit()
-        await bot.send_message(message.from_user.id, "Бот готов к работе!")
+        try:
+            await bot.send_message(game.group_id, ' '.join(message.text.split()[1:]))
+        except BaseException as error:
+            game.group_id = int(error.args[0].split()[-1][:-1])
+            db_ses.commit()
+            await bot.send_message(message.from_user.id, "Бот готов к работе!")
 
 
 @dp.message_handler(content_types=['new_chat_members'])
@@ -168,31 +188,33 @@ async def add_to_group_id(message: types.Message):
 
 @dp.message_handler(commands=['start_round'])
 async def start_round(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    game.status = 'active'
-    db_ses.commit()
-    await bot.send_message(game.group_id, "Начали!")
-    await asyncio.sleep(game.time_per_round)
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    game.status = 'inactive'
-    db_ses.commit()
-    for member in game.members:
-        if not member.chosen_number:
-            member.status = "Retired"
-            member.reason = 'Время на выбор истекло'
-            game.current_retired += 1
-            member.retired_number = game.current_retired
-            await bot.restrict_chat_member(game.group_id, member.tg_id,
-                                           can_send_messages=False)
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        game.status = 'active'
+        db_ses.commit()
+        await bot.send_message(game.group_id, "Начали!")
+        await asyncio.sleep(game.time_per_round)
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        if game.status == 'active':
+            game.status = 'inactive'
             db_ses.commit()
-    await bot.send_message(game.group_id, make_results())
-    game.set_x()
-    db_ses.commit()
-    game.current_alives = 0
-    game.current_retired = 0
-    db_ses.commit()
+            for member in game.members:
+                if not member.chosen_number:
+                    member.status = "Retired"
+                    member.reason = 'Время на выбор истекло'
+                    game.current_retired += 1
+                    member.retired_number = game.current_retired
+                    await bot.restrict_chat_member(game.group_id, member.tg_id,
+                                                   can_send_messages=False)
+                    db_ses.commit()
+            await bot.send_message(game.group_id, make_results())
+            game.set_x()
+            db_ses.commit()
+            game.current_alives = 0
+            game.current_retired = 0
+            db_ses.commit()
 
 
 @dp.message_handler()
@@ -233,23 +255,36 @@ async def get_answers(message: types.Message):
                         member.retired_number = game.current_retired
                     db_ses.commit()
                     if game.current_retired >= game.limit_retired:
-                        await bot.send_message(game.group_id, make_results())
+                        game.status = 'inactive'
+                        db_ses.commit()
+                        await bot.send_message(game.group_id, make_results(auto=True))
+                        game.set_x()
+                        db_ses.commit()
+                        game.current_alives = 0
+                        game.current_retired = 0
+                        db_ses.commit()
                     await bot.restrict_chat_member(game.group_id, message.from_user.id,
                                                    can_send_messages=False)
 
 
-def make_results():
+def make_results(auto=False):
     db_ses = db_session.create_session()
     game = db_ses.query(Game).all()[-1]
     if game.lucky_number != -1:
         lucky_number = ''
-    alives = ['' for i in range(game.current_alives)]
+    if auto:
+        alives = []
+    else:
+        alives = ['' for i in range(game.current_alives)]
     retired = ['' for i in range(game.current_retired)]
     for member in game.members:
         if member.status == 'Alive':
             if game.lucky_number != -1 and int(member.chosen_number) == game.lucky_number:
                 lucky_number = member.username
-            alives[member.retired_number - 1] = '@' + member.username
+            if auto:
+                alives.append('@' + member.username)
+            else:
+                alives[member.retired_number - 1] = '@' + member.username
         elif member.status == 'Retired':
             if member.reason != 'Время на выбор истекло':
                 retired[

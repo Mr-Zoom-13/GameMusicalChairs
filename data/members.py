@@ -12,4 +12,5 @@ class Member(SqlAlchemyBase, SerializerMixin):
     game_id = sqlalchemy.Column(sqlalchemy.Integer, sqlalchemy.ForeignKey('games.id'))
     chosen_number = sqlalchemy.Column(sqlalchemy.String)
     status = sqlalchemy.Column(sqlalchemy.String, default="Alive")
+    reason = sqlalchemy.Column(sqlalchemy.String)
     retired_number = sqlalchemy.Column(sqlalchemy.Integer)

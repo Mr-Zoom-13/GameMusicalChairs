@@ -1,15 +1,10 @@
 from aiogram import Bot, Dispatcher, executor, types
-from aiogram.utils.executor import start_webhook
 from config import *
 from data import db_session
 from data.games import Game
 from data.members import Member
 from data.banned import Banned
-import logging
-
-
-
-
+import asyncio
 
 bot = Bot(token)
 dp = Dispatcher(bot)
@@ -21,7 +16,8 @@ async def set_limit_numbers(message: types.Message):
     game = db_ses.query(Game).all()[-1]
     x = int(message.text.split()[1])
     if x > len(game.members) - 1:
-        await message.reply(f"Введен недопустимый лимит! (Текущее число выживших: {len(game.members) - game.current_retired})!")
+        await message.reply(
+            f"Введен недопустимый лимит! (Текущее число выживших: {len(game.members) - game.current_retired})!")
     else:
         game.x = x
         db_ses.commit()
@@ -113,7 +109,7 @@ async def set_time(message: types.Message):
     await message.reply("Время, отведенное на раунд, установлено!")
 
 
-@dp.message_handler(commands=['set_limit'])
+@dp.message_handler(commands=['set_limit_retired'])
 async def set_limit(message: types.Message):
     db_ses = db_session.create_session()
     game = db_ses.query(Game).all()[-1]
@@ -149,39 +145,95 @@ async def add_to_group_id(message: types.Message):
             await bot.kick_chat_member(message.chat.id, chat_member.id)
 
 
+@dp.message_handler(commands=['start_round'])
+async def start_round(message: types.Message):
+    db_ses = db_session.create_session()
+    game = db_ses.query(Game).all()[-1]
+    game.status = 'active'
+    db_ses.commit()
+    await bot.send_message(game.group_id, "Начали!")
+    await asyncio.sleep(game.time_per_round)
+    db_ses = db_session.create_session()
+    game = db_ses.query(Game).all()[-1]
+    for member in game.members:
+        if not member.chosen_number:
+            member.status = "Retired"
+            member.reason = 'Время на выбор истекло'
+            game.current_retired += 1
+            member.retired_number = game.current_retired
+            db_ses.commit()
+    await bot.send_message(game.group_id, make_results())
 
 
-async def on_startup(dp):
-    await bot.set_webhook(WEBHOOK_URL)
-    # insert code here to run it after start
+@dp.message_handler()
+async def get_answers(message: types.Message):
+    db_ses = db_session.create_session()
+    game = db_ses.query(Game).all()[-1]
+    if game.status == 'active' and message.chat.id == game.group_id:
+        for member in game.members:
+            if member.username == message.from_user.username:
+                if member.chosen_number:
+                    member.status = "Retired"
+                    member.reason = "Больше одного ответа"
+                else:
+                    member.chosen_number = message.text
+                    try:
+                        chosen_number = int(message.text)
+                        if chosen_number < 1 or chosen_number > game.x:
+                            member.status = "Retired"
+                            member.reason = "Номер недоступен (за пределами значений)"
+                        elif not game.check_number(chosen_number):
+                            member.status = "Retired"
+                            member.reason = "Номер уже занят"
+                        else:
+                            game.current_alives += 1
+                            member.retired_number = game.current_alives
+                    except ValueError:
+                        member.status = 'Retired'
+                        member.reason = "Некорректный ответ (ответ содержит лишние символы)"
+
+                if member.status == 'Retired':
+                    if member.reason != "Время на выбор истекло":
+                        game.current_retired += 1
+                        member.retired_number = game.current_retired
+                    db_ses.commit()
+                    await bot.restrict_chat_member(game.group_id, message.from_user.id,
+                                                   types.ChatPermissions(
+                                                       can_send_messages=False))
 
 
-async def on_shutdown(dp):
-    logging.warning('Shutting down..')
-
-    # insert code here to run it before shutdown
-
-    # Remove webhook (not acceptable in some cases)
-    await bot.delete_webhook()
-
-    # Close DB connection (if used)
-    await dp.storage.close()
-    await dp.storage.wait_closed()
-
-    logging.warning('Bye!')
-
-
+def make_results():
+    db_ses = db_session.create_session()
+    game = db_ses.query(Game).all()[-1]
+    if game.lucky_number != -1:
+        lucky_number = ''
+    alives = ['' for i in range(game.current_alives)]
+    retired = ['' for i in range(game.current_retired)]
+    for member in game.members:
+        if member.status == 'Alive':
+            if game.lucky_number != -1 and int(member.chosen_number) == lucky_number:
+                lucky_number = member.username
+            alives[member.retired_number - 1] = '@' + member.username
+        else:
+            retired[
+                member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason + ' | Выбрано: ' + member.chosen_number
+    if game.lucky_number != -1:
+        result = 'Итоги раунда:\nСчастливый номер выбрал: @' + lucky_number + '\nВыжившие: '
+    else:
+        result = 'Итоги раунда:\nВыжившие: '
+    num = 0
+    for i in range(len(alives)):
+        if alives[i]:
+            num += 1
+            result += str(num) + '. ' + alives[i] + '\n'
+    num = 0
+    for i in range(len(retired)):
+        if retired[i]:
+            num += 1
+            result += str(num) + '. ' + retired[i] + '\n'
+    return result
 
 
 if __name__ == '__main__':
     db_session.global_init('db/bot.db')
-    WEBHOOK_PATH = ""  # да, тут пусто
-    WEBAPP_HOST = '127.0.0.1'
-    WEBAPP_PORT = 5000
-    WEBHOOK_URL = "https://9cad-94-41-167-123.ngrok-free.app"
-    start_webhook(dispatcher=dp,
-        webhook_path=WEBHOOK_PATH,on_startup=on_startup,
-        on_shutdown=on_shutdown,
-        host=WEBAPP_HOST,
-        port=WEBAPP_PORT)
-    # executor.start_polling(dp)
+    executor.start_polling(dp)

@@ -14,8 +14,20 @@ class Game(SqlAlchemyBase, SerializerMixin):
     lucky_number = sqlalchemy.Column(sqlalchemy.Integer, default=-1)
     limit_retired = sqlalchemy.Column(sqlalchemy.Integer)
     current_retired = sqlalchemy.Column(sqlalchemy.Integer, default=0)
+    current_alives = sqlalchemy.Column(sqlalchemy.Integer, default=0)
+    status = sqlalchemy.Column(sqlalchemy.String, default='inactive')
     members = orm.relationship('Member', backref='game')
 
 
-    def set_x(self):
+    def set_x(self) -> None:
         self.x = len(self.members) - self.current_retired - 1
+
+    def check_number(self, chosen_number: int) -> bool:
+        for member in self.members:
+            try:
+                number = int(member.chosen_number)
+                if number == chosen_number:
+                    return False
+            except ValueError:
+                pass
+        return True

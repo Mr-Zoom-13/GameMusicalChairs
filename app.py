@@ -12,28 +12,29 @@ dp = Dispatcher(bot)
 
 @dp.message_handler(commands=['get_result'])
 async def get_result(message: types.Message):
-    db_ses = db_session.create_session()
-    game = db_ses.query(Game).all()[-1]
-    result = 'Выжившие:\n'
-    retired = ['' for i in range(game.current_retired)]
-    for member in game.members:
-        if member.status == "Retired" or member.status == 'Last':
-            if member.reason != 'Время на выбор истекло':
-                retired[
-                    member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason + ' | Выбрано: ' + str(
-                    member.chosen_number)
+    if message.from_user.id in admins:
+        db_ses = db_session.create_session()
+        game = db_ses.query(Game).all()[-1]
+        result = 'Рейтинговая таблица:\n'
+        num = 0
+        retired = ['' for i in range(game.current_retired)]
+        for member in game.members:
+            if member.status == "Retired" or member.status == 'Last':
+                if member.reason != 'Время на выбор истекло':
+                    retired[
+                        member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason + ' | Выбрано: ' + str(
+                        member.chosen_number)
+                else:
+                    retired[
+                        member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason
             else:
-                retired[
-                    member.retired_number - 1] = '@' + member.username + ' | Причина поражения: ' + member.reason
-        else:
-            result += member.username + '\n'
-    result += "Выбывшие: \n"
-    num = 0
-    for i in range(len(retired)):
-        if retired[i]:
-            num += 1
-            result += str(num) + '. ' + retired[i] + '\n'
-    await message.answer(result)
+                num += 1
+                result += str(num) + '. ' + member.username + '\n'
+        for i in range(len(retired)):
+            if retired[i]:
+                num += 1
+                result += str(num) + '. ' + retired[i] + '\n'
+        await message.answer(result)
 
 
 @dp.message_handler(commands=['info'])

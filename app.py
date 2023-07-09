@@ -264,7 +264,7 @@ async def get_answers(message: types.Message):
                         if chosen_number < 1 or chosen_number > game.x:
                             member.chosen_number = message.text
                             member.status = "Retired"
-                            member.reason = "Номер недоступен (за пределами значений)"
+                            member.reason = "Номер недоступен"
                         elif not game.check_number(chosen_number):
                             member.chosen_number = message.text
                             member.status = "Retired"
@@ -277,7 +277,7 @@ async def get_answers(message: types.Message):
                     except ValueError:
                         member.chosen_number = message.text
                         member.status = 'Retired'
-                        member.reason = "Некорректный ответ (ответ содержит лишние символы)"
+                        member.reason = "Некорректный ответ"
                         db_ses.commit()
 
                 if member.status == 'Retired':

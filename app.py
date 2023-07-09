@@ -30,6 +30,7 @@ async def get_result(message: types.Message):
             else:
                 num += 1
                 result += str(num) + '. ' + member.username + '\n'
+        retired = retired[::-1]
         for i in range(len(retired)):
             if retired[i]:
                 num += 1
